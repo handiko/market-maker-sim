@@ -87,13 +87,21 @@
   .pos  { color: var(--green); }
   .neg  { color: var(--red);   }
   .neu  { color: var(--text);  }
-  .inv-track { height: 4px; background: var(--border2); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+  .inv-track { height: 4px; background: var(--border2); border-radius: 2px; margin-top: 6px; overflow: hidden; position: relative; }
   .inv-fill  { height: 100%; border-radius: 2px; transition: width .15s, background .15s; }
+  .hedge-badge {
+    display: inline-block; margin-left: 8px;
+    font-size: 9px; font-weight: 500; letter-spacing: .05em;
+    padding: 1px 6px; border-radius: 3px;
+    background: rgba(240,160,60,.15); color: var(--amber);
+    border: 0.5px solid rgba(240,160,60,.3);
+    vertical-align: middle; transition: opacity .2s;
+  }
 
   /* ── Quote strip ────────────────────────────────────────────── */
   .qstrip {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 8px;
     margin-bottom: 14px;
   }
@@ -230,7 +238,7 @@
     .metrics { grid-template-columns: repeat(2, 1fr); }
     .charts  { grid-template-columns: 1fr; }
     .bottom  { grid-template-columns: 1fr; }
-    .qstrip  { grid-template-columns: 1fr; gap: 6px; }
+    .qstrip  { grid-template-columns: repeat(2, 1fr); gap: 6px; }
   }
 </style>
 </head>
@@ -256,9 +264,11 @@
       <div class="mc-val neu" id="m-pnl">$0.00</div>
     </div>
     <div class="mc">
-      <div class="mc-lbl">INVENTORY</div>
+      <div class="mc-lbl">INVENTORY<span class="hedge-badge" id="hedge-badge" style="opacity:0">HEDGING</span></div>
       <div class="mc-val neu" id="m-inv">0</div>
-      <div class="inv-track"><div class="inv-fill" id="inv-bar" style="width:50%;background:#555"></div></div>
+      <div class="inv-track">
+        <div class="inv-fill" id="inv-bar" style="width:50%;background:#555"></div>
+      </div>
     </div>
     <div class="mc">
       <div class="mc-lbl">CURRENT SPREAD</div>
@@ -270,7 +280,6 @@
     </div>
   </div>
 
-  <!-- Live quote strip -->
   <div class="qstrip">
     <div class="qs" style="border-left-color:var(--text2)">
       <div class="qs-key">MID PRICE (S)</div>
@@ -283,6 +292,10 @@
     <div class="qs" style="border-left-color:var(--red)">
       <div class="qs-key">ASK — reservation + δ/2 + skew</div>
       <div class="qs-val neg" id="fs-ask">—</div>
+    </div>
+    <div class="qs" style="border-left-color:var(--amber)">
+      <div class="qs-key">EFFECTIVE SKEW (manual + hedge)</div>
+      <div class="qs-val neu" id="fs-eskew">0.000</div>
     </div>
   </div>
 
@@ -339,6 +352,11 @@
         <span class="ctrl-lbl">Risk horizon T</span>
         <input type="range" min="0.05" max="2" step="0.05" value="0.5" id="sl-T">
         <span class="ctrl-val" id="vl-T">0.50</span>
+      </div>
+      <div class="ctrl-row" style="border-top:0.5px solid var(--border);padding-top:9px;margin-top:2px">
+        <span class="ctrl-lbl" style="color:var(--amber)">Max inventory |q|</span>
+        <input type="range" min="1" max="50" step="1" value="10" id="sl-maxInv">
+        <span class="ctrl-val" id="vl-maxInv" style="color:var(--amber)">10</span>
       </div>
 
       <div class="btn-row">
@@ -402,12 +420,13 @@ function randn() {
 /* ── Read slider params ── */
 function getP() {
   return {
-    gamma: +document.getElementById('sl-gamma').value,
-    sigma: +document.getElementById('sl-sigma').value,
-    k:     +document.getElementById('sl-k').value,
-    A:     +document.getElementById('sl-A').value,
-    skew:  +document.getElementById('sl-skew').value,
-    T:     +document.getElementById('sl-T').value,
+    gamma:  +document.getElementById('sl-gamma').value,
+    sigma:  +document.getElementById('sl-sigma').value,
+    k:      +document.getElementById('sl-k').value,
+    A:      +document.getElementById('sl-A').value,
+    skew:   +document.getElementById('sl-skew').value,
+    T:      +document.getElementById('sl-T').value,
+    maxInv: +document.getElementById('sl-maxInv').value,
   };
 }
 
@@ -434,12 +453,15 @@ const chartBase = {
   scales: {
     x: { display: false },
     y: {
+      beginAtZero: false,
+      grace: '5%',
       grid: { color: G.grid },
       ticks: { color: G.tick, font: { size: 9, family: "'JetBrains Mono', monospace" }, maxTicksLimit: 4 }
     }
   }
 };
 
+// Deep-copy options so the two charts never share a scales reference
 const PC = new Chart(document.getElementById('priceChart'), {
   type: 'line',
   data: {
@@ -450,7 +472,7 @@ const PC = new Chart(document.getElementById('priceChart'), {
       { data: [], borderColor: G.red,   fill: false, borderDash: [3, 3] },
     ]
   },
-  options: { ...chartBase }
+  options: JSON.parse(JSON.stringify(chartBase))
 });
 
 const LC = new Chart(document.getElementById('pnlChart'), {
@@ -464,7 +486,7 @@ const LC = new Chart(document.getElementById('pnlChart'), {
       backgroundColor: dk ? 'rgba(91,156,246,.07)' : 'rgba(37,99,216,.05)'
     }]
   },
-  options: { ...chartBase }
+  options: JSON.parse(JSON.stringify(chartBase))
 });
 
 /* ── Push new data point ── */
@@ -494,13 +516,14 @@ function pushData(s, b, a, pnl) {
 }
 
 /* ── Add a row to the fill log ── */
-function addLog(side, price, q) {
+function addLog(side, price, q, isHedge) {
   const c = document.getElementById('log-scroll');
   if (fills === 1) c.innerHTML = '';  // clear placeholder
   const d = document.createElement('div');
   d.className = 'log-entry ' + (side === 'BUY' ? 'le-buy' : 'le-sell');
+  const hedgeMark = isHedge ? ' <span style="color:var(--amber);font-size:9px">⬡HDG</span>' : '';
   d.innerHTML =
-    `<span>${side === 'BUY' ? '▼ BID HIT' : '▲ ASK HIT'}</span>` +
+    `<span>${side === 'BUY' ? '▼ BID HIT' : '▲ ASK HIT'}${hedgeMark}</span>` +
     `<span>@ ${price.toFixed(3)}</span>` +
     `<span>inv ${q > 0 ? '+' : ''}${q}</span>` +
     `<span>t${tick}</span>`;
@@ -509,7 +532,7 @@ function addLog(side, price, q) {
 }
 
 /* ── Update metric cards ── */
-function updateMetrics(pnl, q, spread) {
+function updateMetrics(pnl, q, spread, maxInv, hedgeSkew, totalSkew) {
   const pe = document.getElementById('m-pnl');
   pe.textContent = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2);
   pe.className = 'mc-val ' + (pnl > 0.01 ? 'pos' : pnl < -0.01 ? 'neg' : 'neu');
@@ -518,10 +541,15 @@ function updateMetrics(pnl, q, spread) {
   ie.textContent = (q > 0 ? '+' : '') + q;
   ie.className = 'mc-val ' + (q > 0 ? 'pos' : q < 0 ? 'neg' : 'neu');
 
-  const pct = Math.min(Math.max((q + 25) / 50, 0), 1) * 100;
-  const bar = document.getElementById('inv-bar');
-  bar.style.width  = pct + '%';
-  bar.style.background = q > 0 ? G.green : q < 0 ? G.red : '#555';
+  // Bar scales to maxInv; clamps at ±maxInv visually
+  const pct = Math.min(Math.max((q + maxInv) / (2 * maxInv), 0), 1) * 100;
+  const bar  = document.getElementById('inv-bar');
+  const isHedging = hedgeSkew !== 0;
+  bar.style.width      = pct + '%';
+  bar.style.background = isHedging ? G.amber : (q > 0 ? G.green : q < 0 ? G.red : '#555');
+
+  // Hedge badge visibility
+  document.getElementById('hedge-badge').style.opacity = isHedging ? '1' : '0';
 
   document.getElementById('m-spread').textContent = spread > 0 ? spread.toFixed(4) : '—';
   document.getElementById('m-trades').textContent = fills;
@@ -536,27 +564,39 @@ function simStep() {
   // GBM step
   S = S * Math.exp(-0.5 * p.sigma * p.sigma * DT + p.sigma * Math.sqrt(DT) * randn());
 
-  // A-S quotes
-  const { bid, ask, spread } = asQuotes(S, inv, p);
+  // Hedge skew: kicks in proportionally for each unit of inventory beyond maxInv
+  // Scaled by 1/k so the fill-probability effect is calibrated to the order book depth
+  const excess    = Math.max(0, Math.abs(inv) - p.maxInv);
+  const hedgeSkew = excess > 0 ? -Math.sign(inv) * excess * (1 / p.k) : 0;
+  const totalSkew = p.skew + hedgeSkew;
+
+  // A-S quotes with combined skew
+  const pWithSkew = { ...p, skew: totalSkew };
+  const { bid, ask, spread } = asQuotes(S, inv, pWithSkew);
   tick++;
 
   // Poisson fill check
   if (Math.random() < poissonProb(S - bid, p.A, p.k)) {
     inv++;  cash -= bid;  fills++;
-    addLog('BUY', bid, inv);
+    addLog('BUY', bid, inv, hedgeSkew !== 0);
   }
   if (Math.random() < poissonProb(ask - S, p.A, p.k)) {
     inv--;  cash += ask;  fills++;
-    addLog('SELL', ask, inv);
+    addLog('SELL', ask, inv, hedgeSkew !== 0);
   }
 
   const pnl = cash + inv * S;
   pushData(S, bid, ask, pnl);
-  updateMetrics(pnl, inv, spread);
+  updateMetrics(pnl, inv, spread, p.maxInv, hedgeSkew, totalSkew);
 
-  document.getElementById('fs-s').textContent   = S.toFixed(3);
-  document.getElementById('fs-bid').textContent = bid.toFixed(3);
-  document.getElementById('fs-ask').textContent = ask.toFixed(3);
+  document.getElementById('fs-s').textContent     = S.toFixed(3);
+  document.getElementById('fs-bid').textContent   = bid.toFixed(3);
+  document.getElementById('fs-ask').textContent   = ask.toFixed(3);
+  document.getElementById('fs-eskew').textContent = totalSkew.toFixed(3);
+
+  // Colour the effective skew cell by direction
+  const eskewEl = document.getElementById('fs-eskew');
+  eskewEl.className = 'qs-val ' + (totalSkew > 0.001 ? 'pos' : totalSkew < -0.001 ? 'neg' : 'neu');
 }
 
 /* ── Controls ── */
@@ -573,10 +613,14 @@ function resetSim() {
   LC.data.labels = []; LC.data.datasets[0].data = [];
   PC.update('none'); LC.update('none');
   document.getElementById('log-scroll').innerHTML = '<div class="log-empty">awaiting fills…</div>';
-  updateMetrics(0, 0, 0);
-  document.getElementById('fs-s').textContent   = '100.000';
-  document.getElementById('fs-bid').textContent = '—';
-  document.getElementById('fs-ask').textContent = '—';
+  const maxInv = +document.getElementById('sl-maxInv').value;
+  updateMetrics(0, 0, 0, maxInv, 0, 0);
+  document.getElementById('fs-s').textContent      = '100.000';
+  document.getElementById('fs-bid').textContent    = '—';
+  document.getElementById('fs-ask').textContent    = '—';
+  document.getElementById('fs-eskew').textContent  = '0.000';
+  document.getElementById('fs-eskew').className    = 'qs-val neu';
+  document.getElementById('hedge-badge').style.opacity = '0';
 }
 
 /* ── Slider live readout ── */
@@ -587,6 +631,10 @@ function resetSim() {
     vl.textContent = p === 'A' ? parseFloat(sl.value).toFixed(1)
                                 : parseFloat(sl.value).toFixed(2);
   });
+});
+// maxInv is integer-valued
+document.getElementById('sl-maxInv').addEventListener('input', function() {
+  document.getElementById('vl-maxInv').textContent = this.value;
 });
 
 /* ── Start ── */
