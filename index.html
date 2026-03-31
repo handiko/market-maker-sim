@@ -522,7 +522,7 @@ function addLog(side, price, q, isHedge) {
   if (fills === 1) c.innerHTML = '';  
   const d = document.createElement('div');
   d.className = 'log-entry ' + (side === 'BUY' ? 'le-buy' : 'le-sell');
-  const hedgeMark = isHedge ? ' <span style="color:var(--amber);font-size:9px">⬡HDG</span>' : '';
+  const hedgeMark = isHedge ? ' <span style="color:var(--amber);font-size:9px">HEDGE</span>' : '';
   d.innerHTML =
     `<span>${side === 'BUY' ? '▼ BID HIT' : '▲ ASK HIT'}${hedgeMark}</span>` +
     `<span>@ ${price.toFixed(3)}</span>` +
