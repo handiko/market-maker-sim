@@ -80,7 +80,7 @@ Based on the research provided in the accompanying essay:
 
 ## How to Run
 
-1.  Download the `index.html` file.
+1.  Download the `index.html` file or open this link: [here](https://handiko.github.io/market-maker-sim/)
 2.  Open it in any modern web browser (Chrome, Firefox, or Edge recommended).
 3.  Adjust the sliders to set your market conditions.
 
