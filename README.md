@@ -4,6 +4,8 @@ An interactive, high-fidelity implementation of the seminal **Avellaneda-Stoikov
 
 In-depth essay: [here](https://github.com/handiko/market-maker-sim/blob/main/market-maker-sim-essay.pdf)
 
+![](./web.png)
+
 ## Overview
 
 The simulator models a market maker (MM) who provides liquidity by simultaneously posting bid and ask quotes. The MM's goal is to capture the spread while managing **Inventory Risk** (the risk of price movement against a held position) and **Adverse Selection** (the risk of trading against informed participants).
