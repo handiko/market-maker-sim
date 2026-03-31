@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Avellaneda-Stoikov Market Maker Simulator</title>
+<meta name="description" content="Interactive market-making simulation using the Avellaneda-Stoikov model with Poisson trade arrival and GBM price process.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  /* ── Theme tokens ───────────────────────────────────────────── */
+  :root {
+    --bg:        #0d0f13;
+    --bg2:       #151820;
+    --bg3:       #1c2030;
+    --border:    rgba(255,255,255,.08);
+    --border2:   rgba(255,255,255,.13);
+    --text:      #e2e4ea;
+    --text2:     #8b90a0;
+    --text3:     #555b6e;
+    --green:     #3ecf82;
+    --red:       #f05c5c;
+    --blue:      #5b9cf6;
+    --amber:     #f0a03c;
+    --radius:    8px;
+    --radius-lg: 12px;
+    --mono:      'JetBrains Mono', 'Fira Mono', 'Cascadia Code', monospace;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg:      #f4f5f7;
+      --bg2:     #ffffff;
+      --bg3:     #eceef2;
+      --border:  rgba(0,0,0,.08);
+      --border2: rgba(0,0,0,.15);
+      --text:    #111418;
+      --text2:   #555b6e;
+      --text3:   #9098aa;
+      --green:   #1e8a52;
+      --red:     #c13232;
+      --blue:    #2563d8;
+      --amber:   #b87412;
+    }
+  }
+
+  /* ── Reset & base ───────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 14px; }
+  body {
+    font-family: var(--mono);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 24px 20px 40px;
+  }
+
+  /* ── Layout ─────────────────────────────────────────────────── */
+  .app { max-width: 960px; margin: 0 auto; }
+
+  /* ── Header ─────────────────────────────────────────────────── */
+  .hdr {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding-bottom: 14px;
+    border-bottom: 0.5px solid var(--border2);
+    margin-bottom: 16px;
+  }
+  .hdr-title { font-size: 13px; font-weight: 500; letter-spacing: .07em; color: var(--text); }
+  .hdr-sub   { font-size: 10px; color: var(--text2); margin-top: 4px; letter-spacing: .05em; }
+  .hdr-right { display: flex; align-items: center; gap: 7px; }
+  .dot       { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ── Metric cards ───────────────────────────────────────────── */
+  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+  .mc {
+    background: var(--bg2);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 13px;
+  }
+  .mc-lbl { font-size: 9px; color: var(--text2); letter-spacing: .08em; margin-bottom: 4px; }
+  .mc-val { font-size: 19px; font-weight: 500; transition: color .2s; }
+  .pos  { color: var(--green); }
+  .neg  { color: var(--red);   }
+  .neu  { color: var(--text);  }
+  .inv-track { height: 4px; background: var(--border2); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+  .inv-fill  { height: 100%; border-radius: 2px; transition: width .15s, background .15s; }
+
+  /* ── Quote strip ────────────────────────────────────────────── */
+  .qstrip {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .qs {
+    background: var(--bg2);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 12px;
+    border-left-width: 2px;
+  }
+  .qs-key { font-size: 9px; color: var(--text2); letter-spacing: .06em; }
+  .qs-val { font-size: 14px; font-weight: 500; margin-top: 3px; }
+
+  /* ── Charts ─────────────────────────────────────────────────── */
+  .charts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .cpanel {
+    background: var(--bg2);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius);
+    padding: 11px 13px;
+  }
+  .cpanel-title {
+    font-size: 9px;
+    color: var(--text2);
+    letter-spacing: .08em;
+    margin-bottom: 9px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .legend { display: flex; gap: 12px; }
+  .leg-item { display: flex; align-items: center; gap: 4px; font-size: 9px; color: var(--text2); }
+  .leg-line {
+    width: 16px; height: 2px; border-radius: 1px;
+    background: var(--text2);
+    flex-shrink: 0;
+  }
+
+  /* ── Bottom panels ──────────────────────────────────────────── */
+  .bottom { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+  .ctrl-panel, .log-panel {
+    background: var(--bg2);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+  }
+  .panel-title { font-size: 9px; color: var(--text2); letter-spacing: .08em; margin-bottom: 12px; }
+
+  /* ── Controls ───────────────────────────────────────────────── */
+  .ctrl-row { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+  .ctrl-lbl { font-size: 10px; color: var(--text2); width: 158px; flex-shrink: 0; }
+  .ctrl-val { font-size: 10px; font-weight: 500; width: 38px; text-align: right; flex-shrink: 0; color: var(--text); }
+  input[type=range] {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--bg3);
+    outline: none;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--text);
+    cursor: pointer;
+    transition: transform .1s;
+  }
+  input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.2); }
+  input[type=range]::-moz-range-thumb {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--text);
+    border: none;
+    cursor: pointer;
+  }
+
+  .btn-row { display: flex; gap: 7px; margin-top: 12px; }
+  button {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    padding: 6px 14px;
+    border-radius: var(--radius);
+    border: 0.5px solid var(--border2);
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    letter-spacing: .04em;
+    transition: background .15s, color .15s;
+  }
+  button:hover  { background: var(--bg3); }
+  button:active { transform: scale(.97); }
+
+  /* ── Trade log ──────────────────────────────────────────────── */
+  .log-scroll { overflow-y: auto; max-height: 222px; }
+  .log-entry {
+    display: grid;
+    grid-template-columns: 2fr 1.6fr 1fr 1fr;
+    font-size: 10px;
+    padding: 4px 0;
+    border-bottom: 0.5px solid var(--border);
+    gap: 4px;
+  }
+  .le-buy  { color: var(--green); }
+  .le-sell { color: var(--red);   }
+  .log-empty { font-size: 10px; color: var(--text3); padding: 22px 0; text-align: center; }
+
+  /* ── Footer ─────────────────────────────────────────────────── */
+  .footer {
+    margin-top: 28px;
+    padding-top: 14px;
+    border-top: 0.5px solid var(--border);
+    font-size: 9px;
+    color: var(--text3);
+    display: flex;
+    justify-content: space-between;
+    letter-spacing: .04em;
+  }
+  .footer a { color: var(--text2); text-decoration: none; }
+  .footer a:hover { text-decoration: underline; }
+
+  /* ── Responsive ─────────────────────────────────────────────── */
+  @media (max-width: 640px) {
+    body { padding: 14px 12px 32px; }
+    .metrics { grid-template-columns: repeat(2, 1fr); }
+    .charts  { grid-template-columns: 1fr; }
+    .bottom  { grid-template-columns: 1fr; }
+    .qstrip  { grid-template-columns: 1fr; gap: 6px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <div class="hdr">
+    <div>
+      <div class="hdr-title">AVELLANEDA-STOIKOV MARKET MAKER</div>
+      <div class="hdr-sub">GBM price · Poisson arrivals · optimal quoting · mark-to-market PnL</div>
+    </div>
+    <div class="hdr-right">
+      <div class="dot" id="dot" style="background:var(--green)"></div>
+      <span style="font-size:10px;color:var(--text2)" id="stxt">RUNNING</span>
+    </div>
+  </div>
+
+  <!-- Metrics -->
+  <div class="metrics">
+    <div class="mc">
+      <div class="mc-lbl">MTM PNL</div>
+      <div class="mc-val neu" id="m-pnl">$0.00</div>
+    </div>
+    <div class="mc">
+      <div class="mc-lbl">INVENTORY</div>
+      <div class="mc-val neu" id="m-inv">0</div>
+      <div class="inv-track"><div class="inv-fill" id="inv-bar" style="width:50%;background:#555"></div></div>
+    </div>
+    <div class="mc">
+      <div class="mc-lbl">CURRENT SPREAD</div>
+      <div class="mc-val neu" id="m-spread">—</div>
+    </div>
+    <div class="mc">
+      <div class="mc-lbl">TOTAL FILLS</div>
+      <div class="mc-val neu" id="m-trades">0</div>
+    </div>
+  </div>
+
+  <!-- Live quote strip -->
+  <div class="qstrip">
+    <div class="qs" style="border-left-color:var(--text2)">
+      <div class="qs-key">MID PRICE (S)</div>
+      <div class="qs-val neu" id="fs-s">100.000</div>
+    </div>
+    <div class="qs" style="border-left-color:var(--green)">
+      <div class="qs-key">BID — reservation − δ/2 + skew</div>
+      <div class="qs-val pos" id="fs-bid">—</div>
+    </div>
+    <div class="qs" style="border-left-color:var(--red)">
+      <div class="qs-key">ASK — reservation + δ/2 + skew</div>
+      <div class="qs-val neg" id="fs-ask">—</div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="charts">
+    <div class="cpanel">
+      <div class="cpanel-title">
+        <span>PRICE / BID / ASK</span>
+        <div class="legend">
+          <span class="leg-item"><span class="leg-line" style="background:#888"></span>mid</span>
+          <span class="leg-item"><span class="leg-line" style="background:var(--green);opacity:.7"></span>bid</span>
+          <span class="leg-item"><span class="leg-line" style="background:var(--red);opacity:.7"></span>ask</span>
+        </div>
+      </div>
+      <div style="position:relative;height:170px"><canvas id="priceChart"></canvas></div>
+    </div>
+    <div class="cpanel">
+      <div class="cpanel-title"><span>MARK-TO-MARKET PNL</span></div>
+      <div style="position:relative;height:170px"><canvas id="pnlChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Bottom: controls + log -->
+  <div class="bottom">
+    <div class="ctrl-panel">
+      <div class="panel-title">MODEL PARAMETERS</div>
+
+      <div class="ctrl-row">
+        <span class="ctrl-lbl">Risk aversion γ</span>
+        <input type="range" min="0.01" max="1" step="0.01" value="0.1" id="sl-gamma">
+        <span class="ctrl-val" id="vl-gamma">0.10</span>
+      </div>
+      <div class="ctrl-row">
+        <span class="ctrl-lbl">Volatility σ</span>
+        <input type="range" min="0.05" max="0.5" step="0.01" value="0.15" id="sl-sigma">
+        <span class="ctrl-val" id="vl-sigma">0.15</span>
+      </div>
+      <div class="ctrl-row">
+        <span class="ctrl-lbl">Order depth k</span>
+        <input type="range" min="0.1" max="5" step="0.1" value="1.5" id="sl-k">
+        <span class="ctrl-val" id="vl-k">1.50</span>
+      </div>
+      <div class="ctrl-row">
+        <span class="ctrl-lbl">Trade frequency A</span>
+        <input type="range" min="0.5" max="20" step="0.5" value="5" id="sl-A">
+        <span class="ctrl-val" id="vl-A">5.0</span>
+      </div>
+      <div class="ctrl-row">
+        <span class="ctrl-lbl">Manual skew</span>
+        <input type="range" min="-3" max="3" step="0.1" value="0" id="sl-skew">
+        <span class="ctrl-val" id="vl-skew">0.0</span>
+      </div>
+      <div class="ctrl-row">
+        <span class="ctrl-lbl">Risk horizon T</span>
+        <input type="range" min="0.05" max="2" step="0.05" value="0.5" id="sl-T">
+        <span class="ctrl-val" id="vl-T">0.50</span>
+      </div>
+
+      <div class="btn-row">
+        <button id="btn-tog" onclick="toggleSim()">⏸ Pause</button>
+        <button onclick="resetSim()">↺ Reset</button>
+      </div>
+    </div>
+
+    <div class="log-panel">
+      <div class="panel-title" style="display:flex;justify-content:space-between">
+        <span>FILL LOG</span>
+        <span id="log-cnt">0 fills</span>
+      </div>
+      <div class="log-scroll" id="log-scroll">
+        <div class="log-empty">awaiting fills…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <span>Avellaneda &amp; Stoikov (2008) · GBM price · Poisson arrivals</span>
+    <span>
+      <a href="https://math.nyu.edu/~avellane/HighFrequencyTrading.pdf" target="_blank" rel="noopener">original paper ↗</a>
+    </span>
+  </div>
+
+</div><!-- /app -->
+
+<script>
+/* ── Detect dark/light mode ── */
+const dk = matchMedia('(prefers-color-scheme: dark)').matches;
+const style = getComputedStyle(document.documentElement);
+const G = {
+  green:  dk ? '#3ecf82' : '#1e8a52',
+  red:    dk ? '#f05c5c' : '#c13232',
+  blue:   dk ? '#5b9cf6' : '#2563d8',
+  mid:    dk ? '#888'    : '#666',
+  grid:   dk ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.05)',
+  tick:   dk ? 'rgba(255,255,255,.28)' : 'rgba(0,0,0,.28)',
+};
+
+/* ── Simulation state ── */
+let S = 100, cash = 0, inv = 0, fills = 0, tick = 0, running = true;
+const MAX = 200, DT = 0.004;
+
+/* ── Box-Muller normal sample ── */
+function randn() {
+  let u = 0, v = 0;
+  while (!u) u = Math.random();
+  while (!v) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+/* ── Read slider params ── */
+function getP() {
+  return {
+    gamma: +document.getElementById('sl-gamma').value,
+    sigma: +document.getElementById('sl-sigma').value,
+    k:     +document.getElementById('sl-k').value,
+    A:     +document.getElementById('sl-A').value,
+    skew:  +document.getElementById('sl-skew').value,
+    T:     +document.getElementById('sl-T').value,
+  };
+}
+
+/* ── Avellaneda-Stoikov quotes ── */
+function asQuotes(s, q, p) {
+  const r  = s - q * p.gamma * p.sigma * p.sigma * p.T;
+  const hs = (p.gamma * p.sigma * p.sigma * p.T) / 2
+           + (1 / p.gamma) * Math.log(1 + p.gamma / p.k);
+  return { r, bid: r - hs + p.skew, ask: r + hs + p.skew, spread: 2 * hs };
+}
+
+/* ── Poisson fill probability per tick ── */
+function poissonProb(dist, A, k) {
+  return 1 - Math.exp(-A * Math.exp(-k * Math.max(0, dist)) * DT);
+}
+
+/* ── Chart setup ── */
+const chartBase = {
+  responsive: true,
+  maintainAspectRatio: false,
+  animation: false,
+  plugins: { legend: { display: false }, tooltip: { enabled: false } },
+  elements: { point: { radius: 0 }, line: { borderWidth: 1.5, tension: 0 } },
+  scales: {
+    x: { display: false },
+    y: {
+      grid: { color: G.grid },
+      ticks: { color: G.tick, font: { size: 9, family: "'JetBrains Mono', monospace" }, maxTicksLimit: 4 }
+    }
+  }
+};
+
+const PC = new Chart(document.getElementById('priceChart'), {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      { data: [], borderColor: G.mid,   fill: false },
+      { data: [], borderColor: G.green, fill: false, borderDash: [3, 3] },
+      { data: [], borderColor: G.red,   fill: false, borderDash: [3, 3] },
+    ]
+  },
+  options: { ...chartBase }
+});
+
+const LC = new Chart(document.getElementById('pnlChart'), {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [{
+      data: [],
+      borderColor: G.blue,
+      fill: true,
+      backgroundColor: dk ? 'rgba(91,156,246,.07)' : 'rgba(37,99,216,.05)'
+    }]
+  },
+  options: { ...chartBase }
+});
+
+/* ── Push new data point ── */
+function pushData(s, b, a, pnl) {
+  const lbl = String(tick);
+
+  if (PC.data.labels.length >= MAX) {
+    PC.data.labels.shift();
+    PC.data.datasets.forEach(d => d.data.shift());
+    LC.data.labels.shift();
+    LC.data.datasets[0].data.shift();
+  }
+
+  PC.data.labels.push(lbl);
+  PC.data.datasets[0].data.push(+s.toFixed(4));
+  PC.data.datasets[1].data.push(+b.toFixed(4));
+  PC.data.datasets[2].data.push(+a.toFixed(4));
+
+  LC.data.labels.push(lbl);
+  LC.data.datasets[0].data.push(+pnl.toFixed(4));
+  LC.data.datasets[0].borderColor = pnl >= 0 ? G.blue : G.red;
+  LC.data.datasets[0].backgroundColor = pnl >= 0
+    ? (dk ? 'rgba(91,156,246,.07)' : 'rgba(37,99,216,.05)')
+    : (dk ? 'rgba(240,92,92,.07)'  : 'rgba(193,50,50,.05)');
+
+  PC.update('none');
+  LC.update('none');
+}
+
+/* ── Add a row to the fill log ── */
+function addLog(side, price, q) {
+  const c = document.getElementById('log-scroll');
+  if (fills === 1) c.innerHTML = '';  // clear placeholder
+  const d = document.createElement('div');
+  d.className = 'log-entry ' + (side === 'BUY' ? 'le-buy' : 'le-sell');
+  d.innerHTML =
+    `<span>${side === 'BUY' ? '▼ BID HIT' : '▲ ASK HIT'}</span>` +
+    `<span>@ ${price.toFixed(3)}</span>` +
+    `<span>inv ${q > 0 ? '+' : ''}${q}</span>` +
+    `<span>t${tick}</span>`;
+  c.insertBefore(d, c.firstChild);
+  while (c.children.length > 40) c.removeChild(c.lastChild);
+}
+
+/* ── Update metric cards ── */
+function updateMetrics(pnl, q, spread) {
+  const pe = document.getElementById('m-pnl');
+  pe.textContent = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2);
+  pe.className = 'mc-val ' + (pnl > 0.01 ? 'pos' : pnl < -0.01 ? 'neg' : 'neu');
+
+  const ie = document.getElementById('m-inv');
+  ie.textContent = (q > 0 ? '+' : '') + q;
+  ie.className = 'mc-val ' + (q > 0 ? 'pos' : q < 0 ? 'neg' : 'neu');
+
+  const pct = Math.min(Math.max((q + 25) / 50, 0), 1) * 100;
+  const bar = document.getElementById('inv-bar');
+  bar.style.width  = pct + '%';
+  bar.style.background = q > 0 ? G.green : q < 0 ? G.red : '#555';
+
+  document.getElementById('m-spread').textContent = spread > 0 ? spread.toFixed(4) : '—';
+  document.getElementById('m-trades').textContent = fills;
+  document.getElementById('log-cnt').textContent  = fills + ' fills';
+}
+
+/* ── Main simulation tick ── */
+function simStep() {
+  if (!running) return;
+  const p = getP();
+
+  // GBM step
+  S = S * Math.exp(-0.5 * p.sigma * p.sigma * DT + p.sigma * Math.sqrt(DT) * randn());
+
+  // A-S quotes
+  const { bid, ask, spread } = asQuotes(S, inv, p);
+  tick++;
+
+  // Poisson fill check
+  if (Math.random() < poissonProb(S - bid, p.A, p.k)) {
+    inv++;  cash -= bid;  fills++;
+    addLog('BUY', bid, inv);
+  }
+  if (Math.random() < poissonProb(ask - S, p.A, p.k)) {
+    inv--;  cash += ask;  fills++;
+    addLog('SELL', ask, inv);
+  }
+
+  const pnl = cash + inv * S;
+  pushData(S, bid, ask, pnl);
+  updateMetrics(pnl, inv, spread);
+
+  document.getElementById('fs-s').textContent   = S.toFixed(3);
+  document.getElementById('fs-bid').textContent = bid.toFixed(3);
+  document.getElementById('fs-ask').textContent = ask.toFixed(3);
+}
+
+/* ── Controls ── */
+function toggleSim() {
+  running = !running;
+  document.getElementById('btn-tog').textContent = running ? '⏸ Pause' : '▶ Resume';
+  document.getElementById('dot').style.background = running ? G.green : '#555';
+  document.getElementById('stxt').textContent = running ? 'RUNNING' : 'PAUSED';
+}
+
+function resetSim() {
+  S = 100; cash = 0; inv = 0; fills = 0; tick = 0;
+  PC.data.labels = []; PC.data.datasets.forEach(d => d.data = []);
+  LC.data.labels = []; LC.data.datasets[0].data = [];
+  PC.update('none'); LC.update('none');
+  document.getElementById('log-scroll').innerHTML = '<div class="log-empty">awaiting fills…</div>';
+  updateMetrics(0, 0, 0);
+  document.getElementById('fs-s').textContent   = '100.000';
+  document.getElementById('fs-bid').textContent = '—';
+  document.getElementById('fs-ask').textContent = '—';
+}
+
+/* ── Slider live readout ── */
+['gamma','sigma','k','A','skew','T'].forEach(p => {
+  const sl = document.getElementById('sl-' + p);
+  const vl = document.getElementById('vl-' + p);
+  sl.addEventListener('input', () => {
+    vl.textContent = p === 'A' ? parseFloat(sl.value).toFixed(1)
+                                : parseFloat(sl.value).toFixed(2);
+  });
+});
+
+/* ── Start ── */
+setInterval(simStep, 160);
+</script>
+</body>
+</html>
