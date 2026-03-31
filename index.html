@@ -465,18 +465,17 @@ const LC = new Chart(document.getElementById('pnlChart'), {
 function pushData(s, b, a, pnl) {
   const lbl = String(tick);
 
+  // Price chart rolls — keep only the last MAX ticks
   if (PC.data.labels.length >= MAX) {
     PC.data.labels.shift();
     PC.data.datasets.forEach(d => d.data.shift());
-    LC.data.labels.shift();
-    LC.data.datasets[0].data.shift();
   }
-
   PC.data.labels.push(lbl);
   PC.data.datasets[0].data.push(+s.toFixed(4));
   PC.data.datasets[1].data.push(+b.toFixed(4));
   PC.data.datasets[2].data.push(+a.toFixed(4));
 
+  // PnL chart never rolls — full history always visible
   LC.data.labels.push(lbl);
   LC.data.datasets[0].data.push(+pnl.toFixed(4));
   LC.data.datasets[0].borderColor = pnl >= 0 ? G.blue : G.red;
